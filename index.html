@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Temporal Pixel Lab</title><style>body{background:#15171b;color:#eee;font:16px system-ui;margin:16px;max-width:760px;margin-inline:auto;padding:0 12px}h1{font-size:24px}video,canvas{display:block;width:auto;height:auto;max-width:100%;max-height:55vh;margin-inline:auto;object-fit:contain;background:#000;border-radius:8px}button,select{font:inherit;padding:10px;margin:4px;background:#303641;color:white;border:1px solid #626b78;border-radius:8px}button:disabled{opacity:.4}input{width:100%}#status{white-space:pre-wrap;color:#b9d8ef}label{display:inline-block} [hidden]{display:none!important}</style><h1>Temporal Pixel Lab</h1><video id="video" autoplay playsinline muted hidden></video><canvas id="view" width="640" height="480"></canvas><p><label>Camera <select id="camera"><option value="environment">Rear</option><option value="user">Front</option></select></label><label>Resolution <select id="resolution"><option>320x240</option><option selected>640x480</option><option>1280x720</option></select></label><label>FPS <select id="fps"><option>15</option><option>24</option><option selected>30</option></select></label></p><p><button id="start">Start camera / Live</button><button id="record" disabled>Record 5 seconds</button><button id="play" disabled>Play</button><button id="stop" disabled>Stop camera</button></p><p><label for="delay">Time displacement: <span id="delayValue">2.0</span> s</label><input id="delay" type="range" min="0.25" max="5" step="0.25" value="2"></p><div id="directions"><button data-dir="right">→ Left to right</button><button data-dir="left">← Right to left</button><button data-dir="down">↓ Top to bottom</button><button data-dir="up">↑ Bottom to top</button></div><input id="scrub" type="range" min="0" max="0" value="0" disabled><div id="position">No recording</div><p id="status">Start the camera to begin. Recording stays in RAM only.</p><script>
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Temporal Pixel Lab</title><style>body{background:#15171b;color:#eee;font:16px system-ui;margin:16px;max-width:760px;margin-inline:auto;padding:0 12px}h1{font-size:24px}video,canvas{display:block;width:auto;height:auto;max-width:100%;max-height:55vh;margin-inline:auto;object-fit:contain;background:#000;border-radius:8px}button,select{font:inherit;padding:10px;margin:4px;background:#303641;color:white;border:1px solid #626b78;border-radius:8px}button:disabled{opacity:.4}input{width:100%}#status{white-space:pre-wrap;color:#b9d8ef}label{display:inline-block} [hidden]{display:none!important}</style><h1>Temporal Pixel Lab</h1><video id="video" autoplay playsinline muted hidden></video><canvas id="view" width="640" height="480"></canvas><p><label>Camera <select id="camera"><option value="environment">Rear</option><option value="user">Front</option></select></label><label>Resolution <select id="resolution"><option>320x240</option><option selected>640x480</option><option>1280x720</option></select></label><label>FPS <select id="fps"><option>15</option><option>24</option><option selected>30</option></select></label></p><p><button id="start">Start camera / Live</button><button id="record" disabled>Record 5 seconds</button><button id="play" disabled>Play</button><button id="stop" disabled>Stop camera</button></p><p><label for="delay">Time displacement: <span id="delayValue">2.0</span> s</label><input id="delay" type="range" min="0.25" max="5" step="0.25" value="2"></p><div id="directions"><button data-dir="right">→ Left to right</button><button data-dir="left">← Right to left</button><button data-dir="down">↓ Top to bottom</button><button data-dir="up">↑ Bottom to top</button><button data-dir="brightness">By brightness</button></div><input id="scrub" type="range" min="0" max="0" value="0" disabled><div id="position">No recording</div><p id="status">Start the camera to begin. Recording stays in RAM only.</p><script>
 'use strict';
 const $=id=>document.getElementById(id), video=$('video'), canvas=$('view'), ctx=canvas.getContext('2d',{willReadFrequently:true});
 let stream=null, frames=[], times=[], mode='idle', raf=0, width=640,height=480, rate=30, began=0,last=-Infinity, playbackStart=0, playbackOffset=0, index=0, busy=false;
@@ -14,6 +14,23 @@ $('start').onclick=async()=>{cancel();release();mode='idle';busy=true;controls()
 function finish(message){cancel();history=[];mode='paused';$('scrub').max=Math.max(0,frames.length-1);show(0);stats(message);controls();}
 function displaced(dir, delay, now){
  const out=ctx.createImageData(width,height), dst=new Uint32Array(out.data.buffer);
+ if(dir==='brightness'){
+  const current=history[history.length-1].image.data;
+  const sources=history.map(f=>new Uint32Array(f.image.data.buffer));
+  const lookup=new Array(256);
+  for(let b=0;b<256;b++){
+   const target=now-delay*b/255;
+   let lo=0,hi=history.length-1;
+   while(lo<hi){const mid=(lo+hi)>>1;if(history[mid].time<target)lo=mid+1;else hi=mid;}
+   if(lo>0&&Math.abs(history[lo-1].time-target)<=Math.abs(history[lo].time-target))lo--;
+   lookup[b]=sources[lo];
+  }
+  for(let i=0,j=0;i<dst.length;i++,j+=4){
+   const b=Math.round(0.2126*current[j]+0.7152*current[j+1]+0.0722*current[j+2]);
+   dst[i]=lookup[b][i];
+  }
+  return out;
+ }
  const horizontal=dir==='right'||dir==='left', reverse=dir==='left'||dir==='up';
  const n=horizontal?width:height, sources=history.map(f=>new Uint32Array(f.image.data.buffer));
  for(let k=0;k<n;k++){
