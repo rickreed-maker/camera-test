@@ -1,8 +1,9 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Temporal Pixel Lab</title><style>body{background:#15171b;color:#eee;font:16px system-ui;margin:16px;max-width:760px;margin-inline:auto;padding:0 12px}h1{font-size:24px}video,canvas{display:block;width:auto;height:auto;max-width:100%;max-height:55vh;margin-inline:auto;object-fit:contain;background:#000;border-radius:8px}button,select{font:inherit;padding:10px;margin:4px;background:#303641;color:white;border:1px solid #626b78;border-radius:8px}button:disabled{opacity:.4}input{width:100%}#status{white-space:pre-wrap;color:#b9d8ef}label{display:inline-block} [hidden]{display:none!important}</style><h1>Temporal Pixel Lab</h1><video id="video" autoplay playsinline muted hidden></video><canvas id="view" width="640" height="480"></canvas><p><label>Camera <select id="camera"><option value="environment">Rear</option><option value="user">Front</option></select></label><label>Resolution <select id="resolution"><option>320x240</option><option selected>640x480</option><option>1280x720</option></select></label><label>FPS <select id="fps"><option>15</option><option>24</option><option selected>30</option></select></label></p><p><button id="start">Start camera / Live</button><button id="record" disabled>Record 5 seconds</button><button id="play" disabled>Play</button><button id="stop" disabled>Stop camera</button></p><input id="scrub" type="range" min="0" max="0" value="0" disabled><div id="position">No recording</div><p id="status">Start the camera to begin. Recording stays in RAM only.</p><script>
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Temporal Pixel Lab</title><style>body{background:#15171b;color:#eee;font:16px system-ui;margin:16px;max-width:760px;margin-inline:auto;padding:0 12px}h1{font-size:24px}video,canvas{display:block;width:auto;height:auto;max-width:100%;max-height:55vh;margin-inline:auto;object-fit:contain;background:#000;border-radius:8px}button,select{font:inherit;padding:10px;margin:4px;background:#303641;color:white;border:1px solid #626b78;border-radius:8px}button:disabled{opacity:.4}input{width:100%}#status{white-space:pre-wrap;color:#b9d8ef}label{display:inline-block} [hidden]{display:none!important}</style><h1>Temporal Pixel Lab</h1><video id="video" autoplay playsinline muted hidden></video><canvas id="view" width="640" height="480"></canvas><p><label>Camera <select id="camera"><option value="environment">Rear</option><option value="user">Front</option></select></label><label>Resolution <select id="resolution"><option>320x240</option><option selected>640x480</option><option>1280x720</option></select></label><label>FPS <select id="fps"><option>15</option><option>24</option><option selected>30</option></select></label></p><p><button id="start">Start camera / Live</button><button id="record" disabled>Record 5 seconds</button><button id="play" disabled>Play</button><button id="stop" disabled>Stop camera</button></p><p><label for="delay">Time displacement: <span id="delayValue">2.0</span> s</label><input id="delay" type="range" min="0.25" max="5" step="0.25" value="2"></p><div id="directions"><button data-dir="right">→ Left to right</button><button data-dir="left">← Right to left</button><button data-dir="down">↓ Top to bottom</button><button data-dir="up">↑ Bottom to top</button></div><input id="scrub" type="range" min="0" max="0" value="0" disabled><div id="position">No recording</div><p id="status">Start the camera to begin. Recording stays in RAM only.</p><script>
 'use strict';
 const $=id=>document.getElementById(id), video=$('video'), canvas=$('view'), ctx=canvas.getContext('2d',{willReadFrequently:true});
 let stream=null, frames=[], times=[], mode='idle', raf=0, width=640,height=480, rate=30, began=0,last=-Infinity, playbackStart=0, playbackOffset=0, index=0, busy=false;
-function controls(){const rec=mode==='record'; $('start').disabled=rec||busy; $('record').disabled=!stream||rec||busy; $('play').disabled=!frames.length||rec||busy; $('play').textContent=mode==='play'?'Pause':'Play'; $('stop').disabled=!stream||busy; $('scrub').disabled=!frames.length||rec; for(const id of ['camera','resolution','fps']) $(id).disabled=rec||busy;}
+const directionButtons=[...document.querySelectorAll('[data-dir]')]; let history=[]; $('delay').oninput=()=>{$('delayValue').textContent=Number($('delay').value).toFixed(2);};
+function controls(){const rec=mode==='record'; $('start').disabled=rec||busy; $('delay').disabled=rec||busy; for(const b of directionButtons)b.disabled=!stream||rec||busy; $('record').disabled=!stream||rec||busy; $('play').disabled=!frames.length||rec||busy; $('play').textContent=mode==='play'?'Pause':'Play'; $('stop').disabled=!stream||busy; $('scrub').disabled=!frames.length||rec; for(const id of ['camera','resolution','fps']) $(id).disabled=rec||busy;}
 function cancel(){cancelAnimationFrame(raf);raf=0;}
 function release(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;}
 function stats(prefix=''){ $('status').textContent=prefix+'\n'+width+' × '+height+' | '+frames.length+' frames | '+(frames.length*width*height*4/1048576).toFixed(1)+' MiB pixel buffer'; }
@@ -10,8 +11,50 @@ function draw(){const vw=video.videoWidth,vh=video.videoHeight;if(!vw||!vh)retur
 function show(i){if(!frames.length)return;index=Math.max(0,Math.min(frames.length-1,i));ctx.putImageData(frames[index],0,0);$('scrub').value=index;$('position').textContent='Frame '+(index+1)+' / '+frames.length+' · '+(times[index]/1000).toFixed(2)+' s';}
 function live(){cancel();mode='live';controls();function tick(){if(mode!=='live')return;if(video.readyState>=2)draw();raf=requestAnimationFrame(tick);}tick();}
 $('start').onclick=async()=>{cancel();release();mode='idle';busy=true;controls();try{if(!navigator.mediaDevices?.getUserMedia)throw Error('Camera requires HTTPS and browser permission.'); const [w,h]=$('resolution').value.split('x').map(Number);rate=Number($('fps').value);stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:$('camera').value},width:{ideal:w},height:{ideal:h},frameRate:{ideal:rate}}});video.srcObject=stream;await video.play();frames=[];times=[];const vw=video.videoWidth,vh=video.videoHeight;if(!vw||!vh)throw Error("Camera dimensions unavailable");const scale=Math.min(1,Math.max(w,h)/Math.max(vw,vh),Math.min(w,h)/Math.min(vw,vh));width=Math.max(1,Math.round(vw*scale));height=Math.max(1,Math.round(vh*scale));canvas.width=width;canvas.height=height;$('scrub').max=0;$('position').textContent='No recording';stats('Live camera');live();}catch(e){release();mode='idle';$('status').textContent='Camera error: '+e.message;}finally{busy=false;controls();}};
-function finish(message){cancel();mode='paused';$('scrub').max=Math.max(0,frames.length-1);show(0);stats(message);controls();}
-$('record').onclick=()=>{if(!stream)return;cancel();frames=[];times=[];rate=Number($('fps').value);const estimate=width*height*4*rate*5/1048576;if(estimate>350&&!confirm('This recording may use '+Math.round(estimate)+' MiB of RAM. Continue?')){live();return;}mode='record';began=performance.now();last=-Infinity;controls();function tick(now){if(mode!=='record')return;const elapsed=now-began;if(elapsed>=5000){finish('Recording complete');return;}try{if(video.readyState>=2&&elapsed>=last+1000/rate-2&&frames.length<rate*5){draw();frames.push(ctx.getImageData(0,0,width,height));times.push(elapsed);last=elapsed;stats('Recording '+(elapsed/1000).toFixed(1)+' / 5 s');}}catch(e){finish('Capture stopped: '+e.message);return;}raf=requestAnimationFrame(tick);}raf=requestAnimationFrame(tick);};
+function finish(message){cancel();history=[];mode='paused';$('scrub').max=Math.max(0,frames.length-1);show(0);stats(message);controls();}
+function displaced(dir, delay, now){
+ const out=ctx.createImageData(width,height), dst=new Uint32Array(out.data.buffer);
+ const horizontal=dir==='right'||dir==='left', reverse=dir==='left'||dir==='up';
+ const n=horizontal?width:height, sources=history.map(f=>new Uint32Array(f.image.data.buffer));
+ for(let k=0;k<n;k++){
+  const fraction=k/Math.max(1,n-1), age=delay*(reverse?1-fraction:fraction), target=now-age;
+  let lo=0,hi=history.length-1;
+  while(lo<hi){const mid=(lo+hi)>>1;if(history[mid].time<target)lo=mid+1;else hi=mid;}
+  if(lo>0&&Math.abs(history[lo-1].time-target)<=Math.abs(history[lo].time-target))lo--;
+  const src=sources[lo];
+  if(horizontal){for(let y=0,i=k;y<height;y++,i+=width)dst[i]=src[i];}
+  else{const i=k*width;dst.set(src.subarray(i,i+width),i);}
+ }
+ return out;
+}
+function record(dir=null){
+ if(!stream||mode==='record')return;
+ const delay=dir?Number($('delay').value)*1000:0;
+ rate=Number($('fps').value);
+ const estimate=width*height*4*(Math.ceil(rate*(5+delay/1000))+3)/1048576;
+ if(estimate>350&&!confirm('Pixel buffers may use about '+Math.round(estimate)+' MiB of RAM, plus browser overhead. Continue?'))return;
+ cancel();frames=[];times=[];history=[];mode='record';began=performance.now();last=-Infinity;controls();
+ let outputStart=null;
+ function tick(now){
+  if(mode!=='record')return;
+  if(outputStart!==null&&now-outputStart>=5000){finish(dir?'Time displacement recording complete':'Recording complete');return;}
+  try{
+   if(video.readyState>=2&&now>=last+1000/rate-2){
+    draw();const raw=ctx.getImageData(0,0,width,height);last=now;
+    if(dir){history.push({time:now,image:raw});while(history.length>2&&history[1].time<=now-delay)history.shift();}
+    if(outputStart===null&&(!dir||now-history[0].time>=delay))outputStart=now;
+    if(outputStart!==null&&frames.length<rate*5){
+     const result=dir?displaced(dir,delay,now):raw;frames.push(result);times.push(now-outputStart);if(dir)ctx.putImageData(result,0,0);
+    }
+    const msg=outputStart===null?'Buffering history '+Math.min(delay/1000,(now-began)/1000).toFixed(1)+' / '+(delay/1000).toFixed(2)+' s':'Recording '+((now-outputStart)/1000).toFixed(1)+' / 5 s';
+    $('status').textContent=msg+'\n'+width+' × '+height+' | '+frames.length+' output frames | '+((frames.length+history.length)*width*height*4/1048576).toFixed(1)+' MiB pixel buffers';
+   }
+  }catch(e){finish('Capture stopped: '+e.message);return;}
+  raf=requestAnimationFrame(tick);
+ }
+ raf=requestAnimationFrame(tick);
+}
+$('record').onclick=()=>record();for(const b of directionButtons)b.onclick=()=>record(b.dataset.dir);
 $('play').onclick=()=>{if(!frames.length)return;if(mode==='play'){cancel();mode='paused';controls();return;}cancel();if(index>=frames.length-1)index=0;playbackOffset=times[index];playbackStart=performance.now();mode='play';controls();function tick(now){if(mode!=='play')return;const t=now-playbackStart+playbackOffset;while(index+1<frames.length&&times[index+1]<=t)index++;show(index);if(t>=times[frames.length-1]){mode='paused';controls();return;}raf=requestAnimationFrame(tick);}raf=requestAnimationFrame(tick);};
 $('scrub').oninput=()=>{cancel();mode='paused';show(Number($('scrub').value));controls();};$('stop').onclick=()=>{if(mode==='record')finish('Recording stopped early');else{cancel();mode='paused';}release();stats('Camera stopped');controls();};window.addEventListener('pagehide',()=>{cancel();release();});
 // Temporal sampling: frames[t].data[(y * width + x) * 4 + channel]
